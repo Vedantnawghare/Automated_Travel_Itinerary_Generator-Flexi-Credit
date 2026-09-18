@@ -1,0 +1,157 @@
+{
+  "name": "Travel Itinerary Automation (Google Calendar & Gmail)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "travel-itinerary",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook-1",
+      "name": "Webhook (Receive Itinerary JSON)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "travel-itinerary-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract structured payload sent by Streamlit Travel App\nconst data = $input.item.json.body || $input.item.json;\n\nconst destination = data.destination || 'Destination';\nconst origin = data.origin || 'Origin';\nconst duration = data.duration || 1;\nconst totalCost = data.total_estimated_cost || 0;\nconst userBudget = data.budget || 0;\nconst email = data.email || 'traveler@example.com';\nconst itinerary = data.itinerary || [];\nconst startDate = data.start_date || new Date().toISOString().split('T')[0];\n\n// Generate formatted HTML summary for Gmail\nlet itineraryHtml = `<h2>✈️ Your Curated Travel Itinerary for ${destination}</h2>`;\nitineraryHtml += `<p><b>Origin:</b> ${origin} | <b>Duration:</b> ${duration} Days | <b>Total Estimated Cost:</b> ₹${totalCost.toLocaleString('en-IN')}</p><hr/>`;\n\nitinerary.forEach(day => {\n  itineraryHtml += `<h3>Day ${day.day}${day.date ? ' (' + day.date + ')' : ''}: ${day.theme || 'Exploration'}</h3>`;\n  itineraryHtml += `<p><b>🌅 Morning:</b> ${(day.morning || []).join(', ')}</p>`;\n  itineraryHtml += `<p><b>☀️ Afternoon:</b> ${(day.afternoon || []).join(', ')}</p>`;\n  itineraryHtml += `<p><b>🌙 Evening:</b> ${(day.evening || []).join(', ')}</p>`;\n  if (day.notes) itineraryHtml += `<p><i>📌 Tips: ${day.notes}</i></p>`;\n  itineraryHtml += `<br/>`;\n});\n\nreturn [{\n  json: {\n    ...data,\n    calendar_event_summary: `Trip to ${destination} (${duration} Days)`,\n    calendar_start_time: `${startDate}T09:00:00Z`,\n    calendar_end_time: `${startDate}T19:00:00Z`,\n    formatted_email_html: itineraryHtml,\n    recipient_email: email\n  }\n}];"
+      },
+      "id": "node-parse-json-2",
+      "name": "Parse & Format Itinerary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.create_calendar_events }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-if-calendar-3",
+      "name": "Calendar Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "start": "={{ $json.calendar_start_time }}",
+        "end": "={{ $json.calendar_end_time }}",
+        "summary": "={{ $json.calendar_event_summary }}",
+        "description": "=Travel itinerary generated automatically by Agentic AI.\\nDestination: {{ $json.destination }}\\nTotal Estimated Cost: ₹{{ $json.total_estimated_cost }}"
+      },
+      "id": "node-gcal-4",
+      "name": "Google Calendar (Create Trip Event)",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.1,
+      "position": [900, 160]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.recipient_email }}",
+        "subject": "=✈️ Your Agentic Travel Itinerary: {{ $json.destination }} ({{ $json.duration }} Days)",
+        "message": "={{ $json.formatted_email_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "node-gmail-5",
+      "name": "Gmail (Send Itinerary Email)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [900, 380]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"success\",\n  \"message\": \"Itinerary received by n8n workflow. Calendar event and email scheduled successfully!\",\n  \"destination\": \"{{ $json.destination }}\"\n}",
+        "options": {}
+      },
+      "id": "node-respond-6",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook (Receive Itinerary JSON)": {
+      "main": [
+        [
+          {
+            "node": "Parse & Format Itinerary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Format Itinerary": {
+      "main": [
+        [
+          {
+            "node": "Calendar Enabled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail (Send Itinerary Email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar (Create Trip Event)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar (Create Trip Event)": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail (Send Itinerary Email)": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
